@@ -31,9 +31,14 @@ func main() {
 	pflag.StringVar(&kubeconfig, "kubeconfig", "", "path to Kubernetes config file")
 	var listen string
 	pflag.StringVar(&listen, "listen", ":8282", "listen address")
+	var debug bool
+	pflag.BoolVar(&debug, "debug", false, "set debug")
 	pflag.Parse()
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if debug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
 	appCtx := ctx.AppCtx{
@@ -104,6 +109,10 @@ func main() {
 								log.Error().Err(err).Msg("get s3 backend")
 								continue
 							}
+							region := "not-set"
+							if s3b.Spec.Region != nil {
+								region = *s3b.Spec.Region
+							}
 							fs, err := s3backend.NewS3Backend(appCtx, rcache, ctx.S3BackendConfig{
 								BucketName:      s3b.Spec.BucketName,
 								MaxObjectSize:   s3b.Spec.MaxObjectSize,
@@ -116,6 +125,7 @@ func main() {
 								S3: s3.Options{
 									BaseEndpoint: s3b.Spec.Endpoint,
 									UsePathStyle: true,
+									Region:       region,
 								},
 							})
 							if err != nil {

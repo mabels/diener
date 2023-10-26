@@ -43,7 +43,9 @@ func NewS3Backend(ctx ctx.AppCtx, cache *ristretto.Cache, s3Cfg ctx.S3BackendCon
 	svc := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = s3Cfg.S3.BaseEndpoint
 		o.UsePathStyle = s3Cfg.S3.UsePathStyle
+		o.Region = s3Cfg.S3.Region
 	})
+	log.Debug().Any("s3Cfg", s3Cfg).Msg("new s3 backend")
 	maxAge := time.Duration(s3Cfg.MaxAgeSeconds) * time.Second
 	if maxAge == 0 {
 		maxAge = time.Hour
