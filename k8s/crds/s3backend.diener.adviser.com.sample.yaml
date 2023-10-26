@@ -1,0 +1,13 @@
+apiVersion: diener.adviser.com/v1alpha1
+kind: S3Backend
+metadata:
+  name: example
+spec:
+    accessKey: "accessKey"
+    bucketName: "bucketName"
+    endpoint: "http://doof"
+    maxAgeSeconds: 3700
+    maxObjectSize: 10000000
+    region: "us-west-1"
+    secretKey: "geheim"
+    transferBufSize: 2939393

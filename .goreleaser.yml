@@ -1,0 +1,93 @@
+before:
+  hooks:
+    - go mod download
+#release:
+#  prerelease: {{ .Env.PRERELEASE }}
+builds:
+  - env:
+      - CGO_ENABLED=0
+    id: "diener"
+    ldflags:
+      - "-s -w -X main.Version='{{.Version}}' -X main.GitCommit={{.Commit}}"
+#      - freebsd
+    goos:
+      - linux
+#      - windows
+#      - darwin
+    goarch:
+      - amd64
+      - arm64
+      #- arm
+      #    goarm:
+      #- 6
+      #- 7
+    main: ./main.go
+    binary: diener
+    tags:
+      - release
+
+archives:
+  - id: archive_id
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- .Arm }}
+
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+# .goreleaser.yaml
+dockers:
+- image_templates: ["ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}-amd64"]
+  use: buildx
+  dockerfile: Dockerfile
+  goarch: amd64
+  build_flag_templates:
+  - --platform=linux/amd64
+  - --label=org.opencontainers.image.title={{ .ProjectName }}
+  - --label=org.opencontainers.image.description={{ .ProjectName }}
+  - --label=org.opencontainers.image.url=https://github.com/mabels/{{ .ProjectName }}
+  - --label=org.opencontainers.image.source=https://github.com/mabels/{{ .ProjectName }}
+  - --label=org.opencontainers.image.version={{ .Version }}
+  - --label=org.opencontainers.image.created={{ .CommitTimestamp }}
+  - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - --label=org.opencontainers.image.licenses=APL2
+
+- image_templates: ["ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}-arm64v8"]
+  dockerfile: Dockerfile
+  use: buildx
+  goarch: arm64
+  build_flag_templates:
+  - --platform=linux/arm64/v8
+  - --label=org.opencontainers.image.title={{ .ProjectName }}
+  - --label=org.opencontainers.image.description={{ .ProjectName }}
+  - --label=org.opencontainers.image.url=https://github.com/mabels/{{ .ProjectName }}
+  - --label=org.opencontainers.image.source=https://github.com/mabels/{{ .ProjectName }}
+  - --label=org.opencontainers.image.version={{ .Version }}
+  - --label=org.opencontainers.image.created={{ .CommitTimestamp }}
+  - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - --label=org.opencontainers.image.licenses=APL2
+
+docker_manifests:
+- name_template: ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}
+  image_templates:
+  - ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}-amd64
+  - ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}-arm64v8
+- name_template: ghcr.io/mabels/{{ .ProjectName }}:{{ .Env.RELEASE_TAG }}
+  image_templates:
+  - ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}-amd64
+  - ghcr.io/mabels/{{ .ProjectName }}:{{ .Version }}-arm64v8
+
+
