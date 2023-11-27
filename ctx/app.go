@@ -7,6 +7,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/dgraph-io/ristretto"
 	"github.com/rs/zerolog"
+
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type S3BackendConfig struct {
@@ -32,7 +35,9 @@ type Config struct {
 }
 
 type AppCtx struct {
-	Log zerolog.Logger
-	Cfg Config
-	Ctx context.Context
+	Log    zerolog.Logger
+	Cfg    Config
+	Tracer trace.Tracer
+	Meter  metric.Meter
+	Ctx    context.Context
 }

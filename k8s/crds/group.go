@@ -7,7 +7,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -66,7 +65,7 @@ func (c *DienerV1Alpha1Client) S3Backends(namespace string) S3BackendInterface {
 	}
 }
 
-func WatchS3Backends(clientSet DienerV1Alpha1Interface, ns string, handler cache.ResourceEventHandler) cache.Store {
+func NewS3BackendInformer(clientSet DienerV1Alpha1Interface, ns string, handler cache.ResourceEventHandler) (cache.Store, cache.Controller) {
 	projectStore, projectController := cache.NewInformer(
 		&cache.ListWatch{
 			ListFunc: func(lo metav1.ListOptions) (result runtime.Object, err error) {
@@ -80,7 +79,5 @@ func WatchS3Backends(clientSet DienerV1Alpha1Interface, ns string, handler cache
 		1*time.Minute,
 		handler,
 	)
-
-	projectController.Run(wait.NeverStop)
-	return projectStore
+	return projectStore, projectController
 }
