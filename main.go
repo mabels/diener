@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,8 +15,6 @@ import (
 	k8scrds "github.com/mabels/diener/k8s/crds"
 	k8sinformers "github.com/mabels/diener/k8s/informers"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 
 	"github.com/rs/zerolog"
@@ -146,17 +143,17 @@ func main() {
 	defer stop()
 
 	// Set up OpenTelemetry.
-	serviceName := "diener"
-	serviceVersion := "0.1.0"
-	otelShutdown, err := setupOTelSDK(octx, serviceName, serviceVersion)
-	if err != nil {
-		log.Error().Err(err).Msg("setupOTelSDK")
-		return
-	}
+	// serviceName := "diener"
+	// serviceVersion := "0.1.0"
+	// otelShutdown, err := setupOTelSDK(octx, serviceName, serviceVersion)
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("setupOTelSDK")
+	// 	return
+	// }
 	// Handle shutdown properly so nothing leaks.
-	defer func() {
-		err = errors.Join(err, otelShutdown(context.Background()))
-	}()
+	// defer func() {
+	// 	err = errors.Join(err, otelShutdown(context.Background()))
+	// }()
 
 	appCtx := ctx.AppCtx{
 		Log:    log,
@@ -176,11 +173,11 @@ func main() {
 		Ctx: octx,
 	}
 
-	err = runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second))
-	if err != nil {
-		log.Error().Err(err).Msg("start runtime")
-		return
-	}
+	// err = runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second))
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("start runtime")
+	// 	return
+	// }
 
 	_, span := appCtx.Tracer.Start(appCtx.Ctx, "main")
 	defer span.End()
@@ -296,25 +293,33 @@ func main() {
 	// }
 }
 
-func newHTTPHandler(appCtx ctx.AppCtx, db *s3backend.DynamicBackend) http.Handler {
-	hdl := func(w http.ResponseWriter, r *http.Request) {
-		// ctx, span := appCtx.Tracer.Start(r.Context(), r.URL.Path)
-		// defer span.End()
-		// _, hspan := appCtx.Tracer.Start(r.Context(), "reqHeader")
-		// for k, v := range r.Header {
-		// 	span.SetAttributes(attribute.String(k, v[0]))
-		// }
-		// hspan.End()
-		otelhandler := otelhttp.WithRouteTag(r.URL.Path, http.HandlerFunc(func(wr http.ResponseWriter, req *http.Request) {
-			ctx, span := appCtx.Tracer.Start(r.Context(), r.URL.Path)
-			defer span.End()
-			cdb := db.WithContext(ctx)
-			http.FileServer(cdb).ServeHTTP(wr, req.WithContext(ctx))
-		}))
-		otelhandler.ServeHTTP(w, r)
-	}
+type MyHttpHandler struct {
+	appCtx ctx.AppCtx
+	db     *s3backend.DynamicBackend
+}
 
-	// Add HTTP instrumentation for the whole server.
-	handler := otelhttp.NewHandler(http.HandlerFunc(hdl), "ingress")
-	return handler
+func (h MyHttpHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	ctx, span := h.appCtx.Tracer.Start(req.Context(), req.URL.Path)
+	defer span.End()
+	cdb := h.db.WithContext(ctx)
+	if req.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	origin := "*"
+	if req.Header.Get("Origin") != "" {
+		origin = req.Header.Get("Origin")
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	http.FileServer(cdb).ServeHTTP(w, req.WithContext(ctx))
+}
+
+func newHTTPHandler(appCtx ctx.AppCtx, db *s3backend.DynamicBackend) http.Handler {
+	return MyHttpHandler{
+		appCtx: appCtx,
+		db:     db,
+	}
 }

@@ -75,137 +75,6 @@ func NewS3Backend(ctx ctx.AppCtx, cache *ristretto.Cache, s3Cfg ctx.S3BackendCon
 	}, nil
 }
 
-type S3File struct {
-	log     zerolog.Logger
-	tracer  trace.Tracer
-	ctx     context.Context
-	name    string
-	obj     *s3.GetObjectOutput
-	ofs     int64
-	buf     []byte
-	fetched time.Time
-}
-
-func (s3f *S3File) Close() error {
-	_, trace := s3f.tracer.Start(s3f.ctx, "close")
-	defer trace.End()
-	trace.AddEvent(s3f.name)
-	s3f.log.Debug().Msg("close")
-	return nil
-}
-
-func (s3f *S3File) Read(p []byte) (n int, err error) {
-	_, trace := s3f.tracer.Start(s3f.ctx, "read")
-	defer trace.End()
-	trace.AddEvent(s3f.name)
-	trace.SetAttributes(attribute.Int64("ofs", s3f.ofs))
-	// out := bytes.NewBuffer(p)
-	chunk := s3f.obj.ContentLength - s3f.ofs
-	if chunk > int64(len(p)) {
-		chunk = int64(len(p))
-	}
-	copy(p, s3f.buf[s3f.ofs:s3f.ofs+chunk])
-	// fmt.Printf("read: %d:%d:%d\n", s3f.ofs, s3f.buf[s3f.ofs], p[0])
-	s3f.ofs += int64(chunk)
-	trace.SetAttributes(attribute.Int64("len", chunk))
-	return int(chunk), nil
-
-}
-
-func (s3f *S3File) Seek(offset int64, whence int) (int64, error) {
-	_, trace := s3f.tracer.Start(s3f.ctx, "seek")
-	defer trace.End()
-	trace.AddEvent(s3f.name)
-	trace.SetAttributes(attribute.Int("whence", whence))
-	if whence == 0 {
-		s3f.log.Debug().Int64("ofs", offset).Msg("seek")
-		trace.SetAttributes(attribute.Int64("ofs", offset))
-		s3f.ofs = offset
-		return s3f.ofs, nil
-	}
-	trace.SetStatus(otelcodes.Error, "seek not implemented")
-	s3f.log.Error().Int("whence", whence).Msg("seek not implemented")
-	return 0, fs.ErrInvalid
-}
-
-func (s3f *S3File) Readdir(count int) ([]fs.FileInfo, error) {
-	_, trace := s3f.tracer.Start(s3f.ctx, "readdir")
-	defer trace.End()
-	trace.AddEvent(s3f.name)
-	trace.SetAttributes(attribute.Int("count", count))
-	s3f.log.Debug().Int("count", count).Msg("readdir")
-	return nil, nil
-}
-
-func (s3f *S3File) Stat() (fs.FileInfo, error) {
-	octx, trace := s3f.tracer.Start(s3f.ctx, "stat")
-	defer trace.End()
-	trace.AddEvent(s3f.name)
-	s3f.log.Debug().Msg("stat")
-	return &S3FileInfo{
-		name:   s3f.name,
-		ctx:    octx,
-		tracer: s3f.tracer,
-		log:    s3f.log.With().Str("component", "s3-fileinfo").Logger(),
-		obj:    s3f.obj,
-		time:   s3f.fetched,
-	}, nil
-}
-
-type S3FileInfo struct {
-	log    zerolog.Logger
-	tracer trace.Tracer
-	ctx    context.Context
-	name   string
-	obj    *s3.GetObjectOutput
-	time   time.Time
-}
-
-func (s3fi *S3FileInfo) Name() string {
-	_, trace := s3fi.tracer.Start(s3fi.ctx, "Name")
-	defer trace.End()
-	trace.AddEvent(s3fi.name)
-	s3fi.log.Debug().Msg("name")
-	return s3fi.name
-}
-func (s3fi *S3FileInfo) Size() int64 {
-	_, trace := s3fi.tracer.Start(s3fi.ctx, "Size")
-	defer trace.End()
-	trace.AddEvent(s3fi.name)
-	trace.SetAttributes(attribute.Int64("size", int64(s3fi.obj.ContentLength)))
-	s3fi.log.Debug().Int("size", int(s3fi.obj.ContentLength)).Msg("size")
-	return s3fi.obj.ContentLength
-}
-func (s3fi *S3FileInfo) Mode() fs.FileMode {
-	_, trace := s3fi.tracer.Start(s3fi.ctx, "Mode")
-	defer trace.End()
-	trace.AddEvent(s3fi.name)
-	s3fi.log.Debug().Msg("mode")
-	return 0600
-}
-func (s3fi *S3FileInfo) ModTime() time.Time {
-	_, trace := s3fi.tracer.Start(s3fi.ctx, "ModTime")
-	defer trace.End()
-	trace.AddEvent(s3fi.name)
-	s3fi.log.Debug().Msg("modtime")
-	return s3fi.time
-}
-func (s3fi *S3FileInfo) IsDir() bool {
-	_, trace := s3fi.tracer.Start(s3fi.ctx, "IsDir")
-	defer trace.End()
-	trace.AddEvent(s3fi.name)
-	s3fi.log.Debug().Msg("isdir")
-	return false
-}
-func (s3fi *S3FileInfo) Sys() any {
-	_, trace := s3fi.tracer.Start(s3fi.ctx, "Sys")
-	defer trace.End()
-	trace.AddEvent(s3fi.name)
-	s3fi.log.Debug().Msg("sys")
-	return nil
-
-}
-
 func (sss *S3BackendImpl) Open(name string) (http.File, error) {
 	octx, span := sss.tracer.Start(sss.ctx, "Open")
 	defer span.End()
@@ -215,8 +84,8 @@ func (sss *S3BackendImpl) Open(name string) (http.File, error) {
 	log := sss.log.With().Str("name", name).Logger()
 	buf, found := sss.cache.Get(name)
 	if found {
-		age := time.Since(buf.(S3File).fetched)
-		span.SetAttributes(attribute.Int("size", len(buf.(S3File).buf)))
+		age := time.Since(buf.(S3CachedFile).fetched)
+		span.SetAttributes(attribute.Int("size", len(buf.(S3CachedFile).buf)))
 		span.SetAttributes(attribute.Int64("age", int64(age)))
 		if age > sss.maxAge {
 			span.SetStatus(otelcodes.Ok, "cache hit but expired")
@@ -225,9 +94,9 @@ func (sss *S3BackendImpl) Open(name string) (http.File, error) {
 			found = false
 		} else {
 			span.SetStatus(otelcodes.Ok, "cache hit")
-			log.Info().Int("size", len(buf.(S3File).buf)).Msg("cache hit")
-			ifile := buf.(S3File)
-			return &S3File{
+			log.Info().Int("size", len(buf.(S3CachedFile).buf)).Msg("cache hit")
+			ifile := buf.(S3CachedFile)
+			return &S3CachedFile{
 				log:     ifile.log,
 				tracer:  sss.tracer,
 				ctx:     octx,
@@ -255,8 +124,15 @@ func (sss *S3BackendImpl) Open(name string) (http.File, error) {
 	span.SetAttributes(attribute.Int64("size", obj.ContentLength))
 	if obj.ContentLength > int64(sss.maxObjectSize) {
 		span.SetStatus(otelcodes.Error, "max object size overflow")
-		log.Error().Err(err).Int64("size", obj.ContentLength).Msg("max objectSize overflow")
-		return nil, fs.ErrNotExist
+		log.Warn().Int64("size", obj.ContentLength).Msg("max objectSize overflow")
+		return &S3DirectFile{
+			log:     log,
+			tracer:  sss.tracer,
+			ctx:     octx,
+			name:    name,
+			obj:     obj,
+			fetched: time.Now(),
+		}, nil
 	}
 	var fileBuf bytes.Buffer
 	ofs := int64(0)
@@ -292,7 +168,7 @@ func (sss *S3BackendImpl) Open(name string) (http.File, error) {
 	}
 	span.SetAttributes(attribute.Int64("size", ofs))
 	log = log.With().Int64("size", ofs).Logger()
-	s3 := S3File{
+	s3 := S3CachedFile{
 		log:     log,
 		tracer:  sss.tracer,
 		ctx:     octx,
